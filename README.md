@@ -4,8 +4,6 @@
 
 A full-stack dashboard that tracks LLM provider API credits (DeepSeek, OpenRouter) in one polished, real-time interface.
 
----
-
 ## Backend
 
 Built with **Python 3.12 + Flask**. Exposes a JSON API that fetches live balances from configured LLM providers.
@@ -113,5 +111,3 @@ python server.py
 ```
 
 Open `http://localhost:8000`.
-
----
