@@ -1,6 +1,4 @@
-# LLMCREDITCOUNT
-
-**Count Every LLM Credit—Before They Disappear!**
+## Count Every LLM Credit - Before They Disappear!
 
 A full-stack dashboard that tracks LLM provider API credits (DeepSeek, OpenRouter) in one polished, real-time interface.
 
