@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f5f3ef;
+  --foreground: #1a1a1a;
+  --primary: #1a1a1a;
+  --primary-foreground: #f5f3ef;
+  --secondary: #6b6560;
+  --border: #c4bfb7;
+  --surface: #eae7e1;
+  --surface-secondary: #e0ddd6;
+  --surface-tertiary: #d5d0c8;
+  --accent: #1a1a1a;
+  --accent-foreground: #f5f3ef;
+  --tab-inactive: #9a958e;
+  --sidebar-border: #c9c4bc;
+  --selected-indicator: #1a1a1a;
+  --card: 245 243 239;
+  --card-foreground: 26 26 26;
+  --muted: 224 221 214;
+  --muted-foreground: 107 101 96;
+  --input: 196 191 183;
+  --ring: 26 26 26;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+}
+
+.dark {
+  --background: #1a1917;
+  --foreground: #e8e6e1;
+  --primary: #e8e6e1;
+  --primary-foreground: #1a1917;
+  --secondary: #9a958e;
+  --border: #2e2d2a;
+  --surface: #252422;
+  --surface-secondary: #2e2d2a;
+  --surface-tertiary: #363532;
+  --accent: #e8e6e1;
+  --accent-foreground: #1a1917;
+  --tab-inactive: #6b6560;
+  --sidebar-border: #363532;
+  --selected-indicator: #e8e6e1;
+  --card: 26 25 23;
+  --card-foreground: 232 230 225;
+  --muted: 46 45 42;
+  --muted-foreground: 154 149 142;
+  --input: 46 45 42;
+  --ring: 232 230 225;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: hsl(var(--foreground));
+  background: var(--background);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(26, 26, 26, 0.75);
+  outline-offset: 3px;
+}
+
+button {
+  cursor: pointer;
+}
+
+html,
+body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
