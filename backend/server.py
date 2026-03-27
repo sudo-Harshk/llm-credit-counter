@@ -5,7 +5,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
@@ -15,6 +15,17 @@ load_dotenv(BASE_DIR / ".env")
 app = Flask(__name__)
 
 DEGRADED_STATUSES = {"error", "unauthorized", "forbidden"}
+
+
+@dataclass(frozen=True)
+class ProviderDefinition:
+    key: str
+    label: str
+    description: str
+    endpoint: str
+    auth_header: str
+    token_env: str
+    requires_key: bool = True
 
 
 @dataclass(frozen=True)
@@ -32,36 +43,29 @@ class ProviderResult:
             "status": self.status,
             "balance": self.balance,
         }
-
         if self.message:
             payload["message"] = self.message
-
         return payload
 
 
-def _provider_error(key: str, label: str, exc: Exception) -> ProviderResult:
-    response = getattr(exc, "response", None)
-    status_code = getattr(response, "status_code", None)
-
-    if status_code == 401:
-        return ProviderResult(
-            key,
-            label,
-            None,
-            "unauthorized",
-            "Unauthorized. Check the API key.",
-        )
-
-    if status_code == 403:
-        return ProviderResult(
-            key,
-            label,
-            None,
-            "forbidden",
-            "Forbidden. The key does not have access.",
-        )
-
-    return ProviderResult(key, label, None, "error", str(exc))
+PROVIDER_REGISTRY: dict[str, ProviderDefinition] = {
+    "deepseek": ProviderDefinition(
+        key="deepseek",
+        label="DeepSeek",
+        description="Check the account balance for DeepSeek.",
+        endpoint="https://api.deepseek.com/user/balance",
+        auth_header="Authorization",
+        token_env="DEEPSEEK_API_KEY",
+    ),
+    "openrouter": ProviderDefinition(
+        key="openrouter",
+        label="OpenRouter",
+        description="Check the remaining OpenRouter credits.",
+        endpoint="https://openrouter.ai/api/v1/credits",
+        auth_header="Authorization",
+        token_env="OPENROUTER_API_KEY",
+    ),
+}
 
 
 def _utc_now_iso() -> str:
@@ -74,113 +78,137 @@ def _format_balance(value: float | None) -> float | None:
     return round(value, 2)
 
 
-def fetch_openrouter_balance() -> ProviderResult:
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
+def _provider_error(key: str, label: str, exc: Exception) -> ProviderResult:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+
+    if status_code == 401:
+        return ProviderResult(key, label, None, "unauthorized", "Unauthorized. Check the API key.")
+    if status_code == 403:
+        return ProviderResult(key, label, None, "forbidden", "Forbidden. The key does not have access.")
+    return ProviderResult(key, label, None, "error", str(exc))
+
+
+def _get_provider_token(definition: ProviderDefinition, api_key: str | None = None) -> str | None:
+    if api_key:
+        return api_key
+    return os.getenv(definition.token_env)
+
+
+def _fetch_provider_balance(definition: ProviderDefinition, api_key: str | None = None) -> ProviderResult:
+    token = _get_provider_token(definition, api_key)
+    if not token:
         return ProviderResult(
-            "openrouter", "OpenRouter", None, "missing_config", "API key not configured"
+            definition.key,
+            definition.label,
+            None,
+            "missing_config",
+            "API key not configured",
         )
 
     try:
-        res = requests.get(
-            "https://openrouter.ai/api/v1/credits",
-            headers={"Authorization": f"Bearer {api_key}"},
-            timeout=5,
-        )
+        headers = {definition.auth_header: f"Bearer {token}"}
+        if definition.key == "deepseek":
+            headers["Accept"] = "application/json"
+
+        res = requests.get(definition.endpoint, headers=headers, timeout=5)
         res.raise_for_status()
         data = res.json()
 
-        total = float(data.get("data", {}).get("total_credits", 0) or 0)
-        used = float(data.get("data", {}).get("total_usage", 0) or 0)
-        remaining = total - used
+        if definition.key == "deepseek":
+            balance_list = data.get("balance_infos", [])
+            if not balance_list:
+                return ProviderResult(definition.key, definition.label, 0.0, "ok")
+            total_balance = float(balance_list[0].get("total_balance", 0) or 0)
+            return ProviderResult(definition.key, definition.label, _format_balance(total_balance), "ok")
 
-        return ProviderResult(
-            "openrouter", "OpenRouter", _format_balance(remaining), "ok"
-        )
+        if definition.key == "openrouter":
+            total = float(data.get("data", {}).get("total_credits", 0) or 0)
+            used = float(data.get("data", {}).get("total_usage", 0) or 0)
+            return ProviderResult(
+                definition.key,
+                definition.label,
+                _format_balance(total - used),
+                "ok",
+            )
+
+        return ProviderResult(definition.key, definition.label, None, "error", "Unsupported provider parser")
     except Exception as exc:
-        return _provider_error("openrouter", "OpenRouter", exc)
+        return _provider_error(definition.key, definition.label, exc)
 
 
-def fetch_deepseek_balance() -> ProviderResult:
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        return ProviderResult(
-            "deepseek", "DeepSeek", None, "missing_config", "API key not configured"
-        )
-
-    try:
-        res = requests.get(
-            "https://api.deepseek.com/user/balance",
-            headers={
-                "Accept": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            timeout=5,
-        )
-        res.raise_for_status()
-        data = res.json()
-
-        balance_list = data.get("balance_infos", [])
-        if not balance_list:
-            return ProviderResult("deepseek", "DeepSeek", 0.0, "ok")
-
-        total_balance = float(balance_list[0].get("total_balance", 0) or 0)
-        return ProviderResult(
-            "deepseek", "DeepSeek", _format_balance(total_balance), "ok"
-        )
-    except Exception as exc:
-        return _provider_error("deepseek", "DeepSeek", exc)
-
-
-PROVIDERS = [fetch_deepseek_balance, fetch_openrouter_balance]
-
-
-def _build_balances_payload() -> dict:
-    """Shared helper — builds the full balances payload without touching Flask."""
-    providers = [provider().as_dict() for provider in PROVIDERS]
-
+def _provider_payload(definition: ProviderDefinition) -> dict:
     return {
-        "ok": True,
-        "checked_at": _utc_now_iso(),
-        "providers": providers,
-        "summary": {
-            "healthy": sum(1 for item in providers if item["status"] == "ok"),
-            # Fix: count all degraded statuses, not just "error"
-            "degraded": sum(
-                1 for item in providers if item["status"] in DEGRADED_STATUSES
-            ),
-            "configured": sum(
-                1 for item in providers if item["status"] != "missing_config"
-            ),
-        },
+        "key": definition.key,
+        "label": definition.label,
+        "description": definition.description,
+        "requires_key": definition.requires_key,
     }
 
 
-@app.route("/api/balances")
+@app.get("/api/providers")
+def api_providers():
+    return jsonify(
+        {
+            "ok": True,
+            "providers": [_provider_payload(definition) for definition in PROVIDER_REGISTRY.values()],
+        }
+    )
+
+
+@app.post("/api/balances/check")
+def api_balance_check():
+    payload = request.get_json(silent=True) or {}
+    provider_key = payload.get("provider_key")
+    api_key = payload.get("api_key")
+
+    if not provider_key:
+        return jsonify({"ok": False, "message": "provider_key is required"}), 400
+
+    definition = PROVIDER_REGISTRY.get(provider_key)
+    if not definition:
+        return jsonify({"ok": False, "message": "Unknown provider"}), 404
+
+    result = _fetch_provider_balance(definition, api_key=api_key)
+    return jsonify(
+        {
+            "ok": True,
+            "checked_at": _utc_now_iso(),
+            "provider": result.as_dict(),
+        }
+    )
+
+
+@app.get("/api/balances")
 def api_balances():
-    return jsonify(_build_balances_payload())
+    providers = [_fetch_provider_balance(definition).as_dict() for definition in PROVIDER_REGISTRY.values()]
+    return jsonify(
+        {
+            "ok": True,
+            "checked_at": _utc_now_iso(),
+            "providers": providers,
+            "summary": {
+                "healthy": sum(1 for item in providers if item["status"] == "ok"),
+                "degraded": sum(1 for item in providers if item["status"] in DEGRADED_STATUSES),
+                "configured": sum(1 for item in providers if item["status"] != "missing_config"),
+            },
+        }
+    )
 
 
-@app.route("/balance")
+@app.get("/balance")
 def balance():
-    # Fix: call the shared helper directly instead of invoking the view function
-    data = _build_balances_payload()
-    legacy = {
-        item["key"]: item["balance"] if item["balance"] is not None else "error"
-        for item in data["providers"]
-    }
-    legacy["time"] = datetime.now().strftime("%H:%M:%S")
-    return jsonify(legacy)
+    data = jsonify(_fetch_provider_balance(PROVIDER_REGISTRY["deepseek"]).as_dict())
+    return data
 
 
-@app.route("/")
+@app.get("/")
 def home():
     return send_from_directory(FRONTEND_DIST, "index.html")
 
 
-@app.route("/<path:path>")
-def serve_static(path):
-    # Fix: fall back to index.html for any path that isn't a real file (SPA support)
+@app.get("/<path:path>")
+def serve_static(path: str):
     target = FRONTEND_DIST / path
     if target.is_file():
         return send_from_directory(FRONTEND_DIST, path)
@@ -188,6 +216,5 @@ def serve_static(path):
 
 
 if __name__ == "__main__":
-    # Fix: read debug flag from the environment — never hardcode True
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
     app.run(host="0.0.0.0", port=8000, debug=debug)
