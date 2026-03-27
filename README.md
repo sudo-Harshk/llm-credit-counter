@@ -1,4 +1,4 @@
-# LLMCREDITCOUNT
+# LLM-CREDIT-COUNTER
 
 **Count Every LLM Credit Before They Disappear**
 
@@ -76,14 +76,6 @@ Open `http://localhost:5173`.
 
 The frontend loads provider metadata from `GET /api/providers`, then sends the selected provider and user key to `POST /api/balances/check`.
 
-### Production build
-
-```bash
-npm run build
-```
-
-The build outputs to `frontend/dist/`. The Flask backend serves those files when you run `python backend/server.py`.
-
 ## Development workflow
 
 Open two terminals:
@@ -102,15 +94,3 @@ npm run dev
 ```
 
 Then open `http://localhost:5173`.
-
-## Production workflow
-
-```bash
-cd frontend
-npm run build
-cd ../backend
-venv\Scripts\activate
-python server.py
-```
-
-Open `http://localhost:8000`.
