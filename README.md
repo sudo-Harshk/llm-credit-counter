@@ -10,6 +10,7 @@ A dashboard for checking provider balances from a backend-defined provider regis
 - Lets the user select one provider in the UI
 - Accepts a user-provided API key in the browser
 - Calls the backend to check that provider's live balance
+- Auto-refreshes the balance every 30 seconds while the dashboard is open (toggleable)
 - Persists the selected provider and last fetched result locally in the browser
 
 ## Architecture

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { ProviderIcon } from "@lobehub/icons";
 import { Badge } from "./components/ui/badge";
@@ -42,6 +42,8 @@ const LOW_THRESHOLD = 5;
 const CRITICAL_THRESHOLD = 1;
 const STORAGE_PROVIDER_KEY = "credit-counter:selected-provider";
 const STORAGE_CACHE_KEY = "credit-counter:provider-cache";
+const STORAGE_AUTO_REFRESH_KEY = "credit-counter:auto-refresh-enabled";
+const AUTO_REFRESH_INTERVAL_MS = 30_000;
 const ACTION_LABEL = "Check balance";
 const ACTION_BUSY_LABEL = "Checking...";
 const ACTION_ALT_LABEL = "Refresh";
@@ -78,6 +80,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [checking, setChecking] = useState(false);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const checkingRef = useRef(false);
 
   useEffect(() => {
     const storedProvider = window.localStorage.getItem(STORAGE_PROVIDER_KEY);
@@ -90,6 +94,11 @@ export default function App() {
       } catch {
         window.localStorage.removeItem(STORAGE_CACHE_KEY);
       }
+    }
+
+    const storedAutoRefresh = window.localStorage.getItem(STORAGE_AUTO_REFRESH_KEY);
+    if (storedAutoRefresh !== null) {
+      setAutoRefreshEnabled(storedAutoRefresh === "true");
     }
   }, []);
 
@@ -123,11 +132,19 @@ export default function App() {
     }
   }, [selectedProviderKey]);
 
+  useEffect(() => {
+    window.localStorage.setItem(STORAGE_AUTO_REFRESH_KEY, String(autoRefreshEnabled));
+  }, [autoRefreshEnabled]);
+
+  useEffect(() => {
+    checkingRef.current = checking;
+  }, [checking]);
+
   const selectedCachedState = resultCache[selectedProviderKey] ?? null;
   const selectedResult = selectedCachedState?.result ?? null;
   const selectedCheckedAt = selectedCachedState?.checkedAt ?? null;
 
-  async function checkBalance() {
+  const checkBalance = useCallback(async () => {
     if (!selectedProvider) return;
 
     setChecking(true);
@@ -161,7 +178,19 @@ export default function App() {
     } finally {
       setChecking(false);
     }
-  }
+  }, [apiKey, selectedProvider]);
+
+  useEffect(() => {
+    if (!autoRefreshEnabled || !selectedProvider || !apiKey) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      if (checkingRef.current) return;
+      void checkBalance();
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [apiKey, autoRefreshEnabled, checkBalance, selectedProvider]);
 
   const lastChecked = useMemo(() => {
     if (!selectedCheckedAt) return null;
@@ -258,6 +287,9 @@ export default function App() {
                 <p className="mt-2 text-sm text-[var(--secondary)]">
                   {lastChecked ? `Last checked ${lastChecked}` : "No balance check yet"}
                 </p>
+                <p className="mt-2 text-xs text-[var(--secondary)]">
+                  Auto refresh {autoRefreshEnabled ? `on · every ${AUTO_REFRESH_INTERVAL_MS / 1000}s` : "off"}
+                </p>
               </div>
               <Badge className={statusTone(selectedResult?.status ?? "missing_config")}>
                 {(selectedResult?.status ?? "idle").replaceAll("_", " ")}
@@ -272,6 +304,17 @@ export default function App() {
               >
                 <RefreshCw className={`h-4 w-4 ${checking ? "animate-spin" : ""}`} />
                 {checking ? ACTION_BUSY_LABEL : ACTION_LABEL}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => setAutoRefreshEnabled((current) => !current)}
+                className={`border-[var(--border)] shadow-none hover:opacity-90 ${
+                  autoRefreshEnabled
+                    ? "bg-[var(--foreground)] text-white"
+                    : "bg-[var(--surface-secondary)] text-[var(--foreground)]"
+                }`}
+              >
+                {autoRefreshEnabled ? "Auto refresh: on" : "Auto refresh: off"}
               </Button>
               <div className="rounded-full border border-[var(--border)] px-3 py-2 text-sm text-[var(--secondary)]">
                 {loadingProviders ? "Loading providers..." : `${providers.length} providers`}
