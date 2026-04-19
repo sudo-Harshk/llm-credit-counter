@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -66,10 +65,6 @@ PROVIDER_REGISTRY: dict[str, ProviderDefinition] = {
         token_env="OPENROUTER_API_KEY",
     ),
 }
-
-
-def _utc_now_iso() -> str:
-    return datetime.now().astimezone().isoformat()
 
 
 def _format_balance(value: float | None) -> float | None:
@@ -173,7 +168,6 @@ def api_balance_check():
     return jsonify(
         {
             "ok": True,
-            "checked_at": _utc_now_iso(),
             "provider": result.as_dict(),
         }
     )
@@ -185,7 +179,6 @@ def api_balances():
     return jsonify(
         {
             "ok": True,
-            "checked_at": _utc_now_iso(),
             "providers": providers,
             "summary": {
                 "healthy": sum(1 for item in providers if item["status"] == "ok"),

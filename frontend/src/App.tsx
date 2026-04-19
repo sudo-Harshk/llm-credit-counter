@@ -29,13 +29,11 @@ type ProvidersResponse = {
 
 type BalanceCheckResponse = {
   ok: boolean;
-  checked_at: string;
   provider: ProviderResult;
 };
 
 type CachedProviderState = {
   result: ProviderResult;
-  checkedAt: string;
 };
 
 const LOW_THRESHOLD = 5;
@@ -61,15 +59,6 @@ function statusTone(status: string) {
   if (status === "unauthorized") return "text-rose-700 border-rose-200 bg-rose-50";
   if (status === "forbidden") return "text-rose-700 border-rose-200 bg-rose-50";
   return "text-slate-700 border-slate-200 bg-slate-50";
-}
-
-function formatDayWithSuffix(day: number): string {
-  const remainder10 = day % 10;
-  const remainder100 = day % 100;
-  if (remainder10 === 1 && remainder100 !== 11) return `${day}st`;
-  if (remainder10 === 2 && remainder100 !== 12) return `${day}nd`;
-  if (remainder10 === 3 && remainder100 !== 13) return `${day}rd`;
-  return `${day}th`;
 }
 
 export default function App() {
@@ -142,7 +131,6 @@ export default function App() {
 
   const selectedCachedState = resultCache[selectedProviderKey] ?? null;
   const selectedResult = selectedCachedState?.result ?? null;
-  const selectedCheckedAt = selectedCachedState?.checkedAt ?? null;
 
   const checkBalance = useCallback(async () => {
     if (!selectedProvider) return;
@@ -167,7 +155,6 @@ export default function App() {
           ...current,
           [selectedProvider.key]: {
             result: payload.provider,
-            checkedAt: payload.checked_at,
           },
         };
         window.localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(next));
@@ -191,16 +178,6 @@ export default function App() {
 
     return () => window.clearInterval(intervalId);
   }, [apiKey, autoRefreshEnabled, checkBalance, selectedProvider]);
-
-  const lastChecked = useMemo(() => {
-    if (!selectedCheckedAt) return null;
-    const date = new Date(selectedCheckedAt);
-    const day = formatDayWithSuffix(date.getDate());
-    const month = new Intl.DateTimeFormat(undefined, { month: "long" }).format(date);
-    const year = date.getFullYear();
-    const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
-    return `${day}-${month},${year} ${time} local time`;
-  }, [selectedCheckedAt]);
 
   return (
     <main className="mx-auto min-h-full w-full max-w-7xl px-4 py-4 text-[#1a1a1a] sm:px-5 sm:py-5 lg:px-6">
@@ -284,9 +261,6 @@ export default function App() {
                 <h2 className="mt-2 text-2xl font-semibold text-[var(--foreground)]">
                   {selectedProvider?.label ?? "No provider selected"}
                 </h2>
-                <p className="mt-2 text-sm text-[var(--secondary)]">
-                  {lastChecked ? `Last checked ${lastChecked}` : "No balance check yet"}
-                </p>
                 <p className="mt-2 text-xs text-[var(--secondary)]">
                   Auto refresh {autoRefreshEnabled ? `on · every ${AUTO_REFRESH_INTERVAL_MS / 1000}s` : "off"}
                 </p>
