@@ -132,12 +132,17 @@ def _fetch_provider_balance(definition: ProviderDefinition, api_key: str | None 
         return _provider_error(definition.key, definition.label, exc)
 
 
+def _backend_token_configured(definition: ProviderDefinition) -> bool:
+    return bool(os.getenv(definition.token_env, "").strip())
+
+
 def _provider_payload(definition: ProviderDefinition) -> dict:
     return {
         "key": definition.key,
         "label": definition.label,
         "description": definition.description,
         "requires_key": definition.requires_key,
+        "backend_key_configured": _backend_token_configured(definition),
     }
 
 

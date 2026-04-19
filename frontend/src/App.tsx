@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { ProviderIcon } from "@lobehub/icons";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
@@ -12,6 +12,8 @@ type ProviderDefinition = {
   label: string;
   description: string;
   requires_key: boolean;
+  /** True when this provider's env token is set on the server (no browser key needed unless user overrides). */
+  backend_key_configured?: boolean;
 };
 
 type ProviderResult = {
@@ -44,7 +46,6 @@ const STORAGE_AUTO_REFRESH_KEY = "credit-counter:auto-refresh-enabled";
 const AUTO_REFRESH_INTERVAL_MS = 30_000;
 const ACTION_LABEL = "Check balance";
 const ACTION_BUSY_LABEL = "Checking...";
-const ACTION_ALT_LABEL = "Refresh";
 
 function balanceTone(provider?: ProviderResult) {
   if (!provider || provider.status !== "ok" || provider.balance === null) return "text-slate-500";
@@ -70,7 +71,9 @@ export default function App() {
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [checking, setChecking] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [ownKeyOverrideOpen, setOwnKeyOverrideOpen] = useState(false);
   const checkingRef = useRef(false);
+  const prevProviderKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     const storedProvider = window.localStorage.getItem(STORAGE_PROVIDER_KEY);
@@ -132,6 +135,20 @@ export default function App() {
   const selectedCachedState = resultCache[selectedProviderKey] ?? null;
   const selectedResult = selectedCachedState?.result ?? null;
 
+  const serverKeyReady = Boolean(selectedProvider?.backend_key_configured);
+  const effectiveApiKey = !serverKeyReady || ownKeyOverrideOpen ? apiKey : "";
+
+  useEffect(() => {
+    const prev = prevProviderKeyRef.current;
+    if (prev && selectedProviderKey && prev !== selectedProviderKey) {
+      setOwnKeyOverrideOpen(false);
+      setApiKey("");
+    }
+    if (selectedProviderKey) {
+      prevProviderKeyRef.current = selectedProviderKey;
+    }
+  }, [selectedProviderKey]);
+
   const checkBalance = useCallback(async () => {
     if (!selectedProvider) return;
 
@@ -143,7 +160,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider_key: selectedProvider.key,
-          api_key: apiKey,
+          api_key: effectiveApiKey,
         }),
       });
       const payload = (await res.json()) as BalanceCheckResponse & { message?: string };
@@ -165,10 +182,13 @@ export default function App() {
     } finally {
       setChecking(false);
     }
-  }, [apiKey, selectedProvider]);
+  }, [effectiveApiKey, selectedProvider]);
+
+  const canAutoRefresh =
+    Boolean(selectedProvider) && (serverKeyReady ? !ownKeyOverrideOpen || Boolean(apiKey.trim()) : Boolean(apiKey.trim()));
 
   useEffect(() => {
-    if (!autoRefreshEnabled || !selectedProvider || !apiKey) return;
+    if (!autoRefreshEnabled || !selectedProvider || !canAutoRefresh) return;
 
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === "hidden") return;
@@ -177,7 +197,7 @@ export default function App() {
     }, AUTO_REFRESH_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [apiKey, autoRefreshEnabled, checkBalance, selectedProvider]);
+  }, [apiKey, autoRefreshEnabled, canAutoRefresh, checkBalance, ownKeyOverrideOpen, selectedProvider, serverKeyReady]);
 
   return (
     <main className="mx-auto min-h-full w-full max-w-7xl px-4 py-4 text-[#1a1a1a] sm:px-5 sm:py-5 lg:px-6">
@@ -186,10 +206,10 @@ export default function App() {
           Provider balance workspace
         </p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--foreground)] sm:text-4xl">
-          Select a provider, paste the key, check the balance.
+          Select a provider and check the balance.
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--secondary)]">
-          The backend publishes supported providers. The UI stays in sync with that list, so the same layout keeps working as the registry grows.
+          When a provider has a key on the server, you can check immediately. Otherwise, paste your key in the inspector (optional override if both are set).
         </p>
       </section>
 
@@ -273,7 +293,12 @@ export default function App() {
             <div className="flex flex-wrap gap-3">
               <Button
                 onClick={checkBalance}
-                disabled={checking || !selectedProvider}
+                disabled={
+                  checking ||
+                  !selectedProvider ||
+                  (!serverKeyReady && !apiKey.trim()) ||
+                  (serverKeyReady && ownKeyOverrideOpen && !apiKey.trim())
+                }
                 className="border-[var(--border)] bg-[var(--foreground)] text-white shadow-none hover:opacity-90"
               >
                 <RefreshCw className={`h-4 w-4 ${checking ? "animate-spin" : ""}`} />
@@ -297,28 +322,90 @@ export default function App() {
           </div>
 
           <div className="mt-6">
-            <label className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--secondary)]">
-              {selectedProvider?.label ?? "Provider"} API key
-            </label>
-            <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-              <input
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={`Paste ${selectedProvider?.label ?? "provider"} key`}
-                className="h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-secondary)] px-4 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--tab-inactive)] focus:border-[var(--foreground)]"
-              />
-              <Button
-                onClick={checkBalance}
-                disabled={checking || !selectedProvider}
-                className="h-12 shrink-0 rounded-2xl border-[var(--border)] bg-[var(--foreground)] px-5 text-white shadow-none hover:opacity-90"
-              >
-                {ACTION_LABEL}
-              </Button>
-            </div>
-            <p className="mt-3 text-xs text-[var(--tab-inactive)]">The key is sent only for the selected provider check.</p>
+            <details
+              key={`api-panel-${selectedProviderKey}`}
+              className="group overflow-hidden rounded-[1.25rem] border border-[var(--border)] bg-[var(--surface-secondary)]"
+              defaultOpen={!serverKeyReady}
+              onToggle={(event) => {
+                const open = (event.currentTarget as HTMLDetailsElement).open;
+                if (!open && serverKeyReady) {
+                  setOwnKeyOverrideOpen(false);
+                  setApiKey("");
+                }
+              }}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 text-sm font-medium text-[var(--foreground)] [&::-webkit-details-marker]:hidden">
+                <div className="min-w-0">
+                  <span className="block">API key</span>
+                  <span className="mt-0.5 block text-xs font-normal text-[var(--secondary)]">
+                    {serverKeyReady
+                      ? "Tap to expand if you want to paste or override the server key."
+                      : "Tap to expand and paste your key (required for this provider)."}
+                  </span>
+                </div>
+                <ChevronDown className="h-4 w-4 shrink-0 text-[var(--secondary)] transition-transform duration-200 group-open:rotate-180" />
+              </summary>
+              <div className="space-y-4 border-t border-[var(--border)] px-4 pb-4 pt-4">
+                {serverKeyReady ? (
+                  <>
+                    <p className="text-sm leading-6 text-[var(--foreground)]">
+                      This provider uses the API key from the server environment unless you override it below for this
+                      browser session.
+                    </p>
+                    <details
+                      key={`override-${selectedProviderKey}`}
+                      className="group overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]"
+                      onToggle={(event) => {
+                        const open = (event.currentTarget as HTMLDetailsElement).open;
+                        setOwnKeyOverrideOpen(open);
+                        if (!open) setApiKey("");
+                      }}
+                    >
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-[var(--foreground)] [&::-webkit-details-marker]:hidden">
+                        <span>Use my own API key instead</span>
+                        <ChevronDown className="h-4 w-4 shrink-0 text-[var(--secondary)] transition-transform duration-200 group-open:rotate-180" />
+                      </summary>
+                      <div className="space-y-3 border-t border-[var(--border)] px-4 pb-4 pt-3">
+                        <label className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--secondary)]">
+                          {selectedProvider?.label ?? "Provider"} API key
+                        </label>
+                        <input
+                          value={apiKey}
+                          onChange={(event) => setApiKey(event.target.value)}
+                          type="password"
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder={`Paste ${selectedProvider?.label ?? "provider"} key`}
+                          className="h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-secondary)] px-4 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--tab-inactive)] focus:border-[var(--foreground)]"
+                        />
+                        <p className="text-xs text-[var(--tab-inactive)]">
+                          The key is sent only for the selected provider check. Use Check balance above.
+                        </p>
+                      </div>
+                    </details>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--secondary)]">
+                      {selectedProvider?.label ?? "Provider"} API key
+                    </label>
+                    <input
+                      value={apiKey}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      type="password"
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={`Paste ${selectedProvider?.label ?? "provider"} key`}
+                      className="h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--tab-inactive)] focus:border-[var(--foreground)]"
+                    />
+                    <p className="text-xs text-[var(--tab-inactive)]">
+                      No server key is set for this provider. The key is sent only for the selected provider check. Use
+                      Check balance above.
+                    </p>
+                  </>
+                )}
+              </div>
+            </details>
           </div>
 
           <div className="mt-6 rounded-[1.5rem] border border-[var(--border)] bg-[var(--surface-secondary)] p-5">
