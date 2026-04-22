@@ -177,8 +177,8 @@ export default function App() {
         window.localStorage.setItem(STORAGE_CACHE_KEY, JSON.stringify(next));
         return next;
       });
-    } catch {
-      setError("Could not check the selected provider.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not check the selected provider.");
     } finally {
       setChecking(false);
     }

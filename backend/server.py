@@ -59,7 +59,7 @@ PROVIDER_REGISTRY: dict[str, ProviderDefinition] = {
     "openrouter": ProviderDefinition(
         key="openrouter",
         label="OpenRouter",
-        description="Check the remaining OpenRouter credits.",
+        description="View your remaining OpenRouter credits (USD).",
         endpoint="https://openrouter.ai/api/v1/credits",
         auth_header="Authorization",
         token_env="OPENROUTER_API_KEY",
@@ -120,11 +120,13 @@ def _fetch_provider_balance(definition: ProviderDefinition, api_key: str | None 
         if definition.key == "openrouter":
             total = float(data.get("data", {}).get("total_credits", 0) or 0)
             used = float(data.get("data", {}).get("total_usage", 0) or 0)
+            remaining = total - used
             return ProviderResult(
                 definition.key,
                 definition.label,
-                _format_balance(total - used),
+                _format_balance(remaining),
                 "ok",
+                f"Remaining: ${_format_balance(remaining):.2f} · Used: ${_format_balance(used):.2f} · Total: ${_format_balance(total):.2f}",
             )
 
         return ProviderResult(definition.key, definition.label, None, "error", "Unsupported provider parser")
